@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # Redis for Task Queue and Semantic Caching
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # FastAPI Backend
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/1
+    depends_on:
+      - redis
+    volumes:
+      - ./backend/chroma_db:/app/chroma_db
+      - ./backend/temp_uploads:/app/temp_uploads
+
+  # Celery Worker for Document Ingestion
+  worker:
+    build: ./backend
+    command: celery -A celery_worker.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - backend
+    volumes:
+      - ./backend/chroma_db:/app/chroma_db
+      - ./backend/temp_uploads:/app/temp_uploads
+
+  # Next.js Frontend
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - backend
